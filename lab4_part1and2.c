@@ -38,6 +38,7 @@
 #include "xuartps.h" 		//UART definitions header file
 #include "xgpio.h"			//GPIO functions definitions
 #include "xparameters.h"	//DEVICE ID, UART BASEADDRESS, GPIO BASE ADDRESS definitions
+#include <portmacro.h>
 
 
 static void _Task_Uart( void *pvParameters );
@@ -424,7 +425,7 @@ static void _Task_Motor( void *pvParameters ){
 
 		/**********************************************************************************************/
 
-        xQueueReceive(xQueue_FIFO1, &read_motor_parameters_from_queue, 0);
+        xQueueReceive(xQueue_FIFO1, &read_motor_parameters_from_queue, portMAX_DELAY);
 
 		/**********************************************************************************************/
 
@@ -442,17 +443,18 @@ static void _Task_Motor( void *pvParameters ){
         Stepper_setDecelerationInStepsPerSecondPerSecond(read_motor_parameters_from_queue->rotational_deceleration);
         Stepper_setCurrentPositionInSteps(read_motor_parameters_from_queue->currentposition_in_steps);
 
-        for (int i = 0; i < sequenceIndex-1; i++) {
-            int steps = positionSequence[i][0];
-            int delay = positionSequence[i][1];
+        for (int i = 0; i < sequenceIndex; i++) {
+            if (i < sequenceIndex) {
+                int steps = positionSequence[i][0];
+                int delay = positionSequence[i][1];
 
-            Stepper_moveToPositionInSteps(steps);
-            if (Stepper_motionComplete()) {
-                Stepper_disableMotor();
-                Stepper_setCurrentPositionInSteps(steps);
-                vTaskDelay(delay);
+                Stepper_moveToPositionInSteps(steps);
+                if (Stepper_motionComplete()) {
+                    Stepper_disableMotor();
+                    Stepper_setCurrentPositionInSteps(steps);
+                    vTaskDelay(delay);
+                }
             }
-
         }
 
 		/**********************************************************************************************/
@@ -477,7 +479,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		/**********************************************************************************************/
 		//Read the Button value inside the variable "btnState"
 		//i.e., poll the button
-
+        btnState = XGpio_DiscreteRead(&BTNInst, 1);
 
 		/**********************************************************************************************/
 
@@ -495,7 +497,24 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 			//Inside an infinite loop, flash the Red light on RGB led at 2Hz.
 			//The Object Instance for RGB led is "Red_RGBInst".
 
+            sequenceIndex = 0;
 
+            //int decelerationDistance_InSteps = (motor_parameters.rotational_speed*motor_parameters.rotational_speed)/(2*motor_parameters.rotational_acceleration);
+            //Stepper_setCurrentPositionInSteps(Stepper_getCurrentPositionInSteps() + decelerationDistance_InSteps);
+
+            Stepper_setCurrentPositionInSteps(positionSequence[SEQUENCE_LENGTH-1][0]);
+            
+
+            while (1) {
+                XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
+                vTaskDelay(500);
+                
+                XGpio_DiscreteWrite(&Red_RGBInst, 2, 0);
+                vTaskDelay(500);
+            }
+
+            //Stepper_setCurrentPositionInSteps(step);
+            
 
 			/**********************************************************************************************/
 		}
