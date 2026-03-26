@@ -64,9 +64,11 @@ XGpio BTNInst;
 XGpio Red_RGBInst;
 #define RGB_LED_BASEADDR					XPAR_GPIO_LEDS_BASEADDR
 
-#define PMOD_MOTOR_BASEADDR                 XPAR_STEPPER_MOTOR_BASEADDR
+#define PMOD_MOTOR_BASEADDR                 XPAR_GPIO_LEDS_BASEADDR
+// Need to swap back to XPAR_STEPPER_MOTOR_BASEADDR
 
-#define RGB_LED_BASEADDR					XPAR_PMOD_RGB_DEVICE_ID
+
+//#define RGB_LED_BASEADDR					XPAR_PMOD_RGB_DEVICE_ID
 
 // The number of positions/delays which can be sequenced
 #define SEQUENCE_LENGTH 10
@@ -77,6 +79,7 @@ typedef struct {
 	float rotational_speed;
 	float rotational_acceleration;
 	float rotational_deceleration;
+    int   step_type;
 } decision_parameters;
 
 decision_parameters motor_parameters;
@@ -97,7 +100,7 @@ int main (void)
 	//------------------------------------------------------
 
 	// Initialize the PMOD for motor signals (JC PMOD is being used)
-	status = XGpio_Initialize(&PModMotorInst, PMOD_MOTOR_DEVICE_ID);
+	status = XGpio_Initialize(&PModMotorInst, PMOD_MOTOR_BASEADDR);
 	if(status != XST_SUCCESS){
 	xil_printf("GPIO Initialization for PMOD unsuccessful.\r\n");
 	return XST_FAILURE;
@@ -421,7 +424,7 @@ static void _Task_Motor( void *pvParameters ){
 
 		/**********************************************************************************************/
 
-
+        xQueueReceive(xQueue_FIFO1, &read_motor_parameters_from_queue, 0);
 
 		/**********************************************************************************************/
 
@@ -434,7 +437,23 @@ static void _Task_Motor( void *pvParameters ){
 		// Find the function from the driver code that will help to move the motor by an absolute number of target steps.! The function is mentioned in the handout as well.
 		// Once the motor reaches the desired position, disable the motor and then execute the dwell time delay using the conventional vTaskDelay().
 
+        Stepper_setSpeedInStepsPerSecond(read_motor_parameters_from_queue->rotational_speed);
+        Stepper_setAccelerationInStepsPerSecondPerSecond(read_motor_parameters_from_queue->rotational_acceleration);
+        Stepper_setDecelerationInStepsPerSecondPerSecond(read_motor_parameters_from_queue->rotational_deceleration);
+        Stepper_setCurrentPositionInSteps(read_motor_parameters_from_queue->currentposition_in_steps);
 
+        for (int i = 0; i < sequenceIndex-1; i++) {
+            int steps = positionSequence[i][0];
+            int delay = positionSequence[i][1];
+
+            Stepper_moveToPositionInSteps(steps);
+            if (Stepper_motionComplete()) {
+                Stepper_disableMotor();
+                Stepper_setCurrentPositionInSteps(steps);
+                vTaskDelay(delay);
+            }
+
+        }
 
 		/**********************************************************************************************/
 
