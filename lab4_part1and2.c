@@ -6,6 +6,8 @@
  *  Modified on: Mar 9, 2026
  *  Author: Shyama Gandhi
  *  Modified by: Antonio Andara Lara
+ *  Modified on: Mar 31, 2026
+ *  Modified by: Komaldeep Taggar, Riley Whitford
  *
  *  Description:
  *  The code has three tasks: _Task_Uart(), _Task_Motor() and _Task_Emerg_Stop().
