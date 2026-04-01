@@ -449,9 +449,11 @@ static void _Task_Motor( void *pvParameters ){
             if (i < sequenceIndex) {
                 int steps = positionSequence[i][0];
                 int delay = positionSequence[i][1];
+                XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b010);
 
                 Stepper_moveToPositionInSteps(steps);
                 if (Stepper_motionComplete()) {
+                    XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
                     Stepper_disableMotor();
                     Stepper_setCurrentPositionInSteps(steps);
                     vTaskDelay(delay);
