@@ -514,6 +514,10 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 			long currentPos = Stepper_getCurrentPositionInSteps();
 			Stepper_setCurrentPositionInSteps(targetPosition_InSteps - (direction_Scaler * decelDistance));
 
+            if (Stepper_motionComplete()) {
+                Stepper_disableMotor();
+            }
+
 			// Flash led at 2Hz - set delays for 250ms, therefore ON->OFF->ON->OFF, cycle occurs twice per second.
 			while (1) {
 				// RED LED on for 250ms
