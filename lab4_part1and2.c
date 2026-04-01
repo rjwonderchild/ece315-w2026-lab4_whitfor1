@@ -496,8 +496,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 
 			// calculate amount of steps required to decelerate to a stop from the current velocity
 			// use kinematics equation d = (v_final^2 - v_initial^2) / 2*acceleration
-			long decelDistance = (long)(desired_Speed_InStepsPerSecond * desiredSpeed_InStepsPerSecond) / 
-				 (2.0 * deceleration_InStepsPerSecondPerSecond));
+			long decelDistance = (long)((desiredSpeed_InStepsPerSecond * desiredSpeed_InStepsPerSecond) / (2.0 * deceleration_InStepsPerSecondPerSecond));
 			
 			/**********************************************************************************************/
 			//Set the "current stepper position" to the position at which it must now begin decelerating.
@@ -511,15 +510,15 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 			// the device (negative or positive) by the distance we calculated above, thus putting the motor at the exact point that
 			// it needs to decelrate now.
 			long currentPos = Stepper_getCurrentPositionInSteps();
-			Stepper_setCurrentPositionInSteps(targetPosition_InSteps - (direction_Scalar * decelDistance));
+			Stepper_setCurrentPositionInSteps(targetPosition_InSteps - (direction_Scaler * decelDistance));
 
 			// Flash led at 2Hz - set delays for 250ms, therefore ON->OFF->ON->OFF, cycle occurs twice per second.
 			while (1) {
 				// RED LED on for 250ms
-				XGpio_DiscreteWrite(&Red_RGBInst, 1, 0b100);
+				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
 				vTaskDelay(pdMS_TO_TICKS(250));
 				// RED LED off for 250ms
-				XGpio_DiscreteWrite(&Red_RGBInst, 1, 0b000);
+				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
 				vTaskDelay(pdMS_TO_TICKS(250));
 			}
 			
