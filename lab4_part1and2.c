@@ -489,7 +489,14 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 
 		// if the button is pressed for 3 consecutive polls
 		if(pressedCount >= 3){
+			// cancel remaining pairs of movement and delays
+			sequenceIndex = 0;
 
+			// calculate amount of steps required to decelerate to a stop from the current velocity
+			// use kinematics equation d = (v_final^2 - v_initial^2) / 2*acceleration
+			long decelDistance = (long)(desired_Speed_InStepsPerSecond * desiredSpeed_InStepsPerSecond) / 
+				 (2.0 * deceleration_InStepsPerSecondPerSecond));
+			
 			/**********************************************************************************************/
 			//Set the "current stepper position" to the position at which it must now begin decelerating.
 			//There is a stepper driver function for adjusting the current position in steps and you have used in the _Task_Motor().
@@ -497,25 +504,23 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 			//Inside an infinite loop, flash the Red light on RGB led at 2Hz.
 			//The Object Instance for RGB led is "Red_RGBInst".
 
-            sequenceIndex = 0;
+			// we set the current motor position to exactly the number of steps required to decelerate the motor to a stop. 
+			// since the motors target is defined in targetPosition_InSteps, we subtract away the current rotating direction of 
+			// the device (negative or positive) by the distance we calculated above, thus putting the motor at the exact point that
+			// it needs to decelrate now.
+			long currentPos = Stepper_getCurrentPositionInSteps();
+			Stepper_setCurrentPositionInSteps(targetPosition_InSteps - (direction_Scalar * decelDistance));
 
-            //int decelerationDistance_InSteps = (motor_parameters.rotational_speed*motor_parameters.rotational_speed)/(2*motor_parameters.rotational_acceleration);
-            //Stepper_setCurrentPositionInSteps(Stepper_getCurrentPositionInSteps() + decelerationDistance_InSteps);
-
-            Stepper_setCurrentPositionInSteps(positionSequence[SEQUENCE_LENGTH-1][0]);
-            
-
-            while (1) {
-                XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
-                vTaskDelay(500);
-                
-                XGpio_DiscreteWrite(&Red_RGBInst, 2, 0);
-                vTaskDelay(500);
-            }
-
-            //Stepper_setCurrentPositionInSteps(step);
-            
-
+			// Flash led at 2Hz - set delays for 250ms, therefore ON->OFF->ON->OFF, cycle occurs twice per second.
+			while (1) {
+				// RED LED on for 250ms
+				XGpio_DiscreteWrite(&Red_RGBInst, 1, 0b100);
+				vTaskDelay(pdMS_TO_TICKS(250));
+				// RED LED off for 250ms
+				XGpio_DiscreteWrite(&Red_RGBInst, 1, 0b000);
+				vTaskDelay(pdMS_TO_TICKS(250));
+			}
+			
 			/**********************************************************************************************/
 		}
 		// wait 10ms (polling loop at 100Hz)
