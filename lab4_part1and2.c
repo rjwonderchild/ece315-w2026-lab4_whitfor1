@@ -495,7 +495,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		if(pressedCount >= 3){
 			// cancel remaining pairs of movement and delays
 			sequenceIndex = 0;
-            xil_printf("\nOH SHIT EMERGECNY BUTTON ACTIVATED!!\n");
+            xil_printf("\nOH SHIT EMERGENCY BUTTON ACTIVATED!!\n");
 			
 			/**********************************************************************************************/
 			//Set the "current stepper position" to the position at which it must now begin decelerating.
@@ -512,12 +512,35 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 	        // velocity of 0,  Steps = Velocity^2 / (2 * Acceleration)
             float v = Stepper_getCurrentVelocityInStepsPerSecond();
 
+
 	        long decelDistance = (long)((v * v) / (2.0 * deceleration_InStepsPerSecondPerSecond));
 
-	        // determine the distance and direction to travel
+
             Stepper_SetupStop();
 
-            while (!Stepper_motionComplete()) {
+            int stoppedCount = 0;
+
+            while (1) {
+                float currV = Stepper_getCurrentVelocityInStepsPerSecond();
+                if (currV < 0) currV = -currV;
+
+                if (Stepper_motionComplete()) {
+                    xil_printf("\nMOTION COMPLETE TRUE\n");
+                }
+
+                if (currV < 1.0f) {
+                    stoppedCount++;
+                } else {
+                    stoppedCount = 0;
+                }
+
+                if (stoppedCount >= 5) {
+                    xil_printf("\nVELOCITY NEAR ZERO, FORCING MOTOR OFF BECAUSE FUCK YOU.\n");
+                    break;
+                }
+
+
+
                 // RED LED on for 250ms
 				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
 				vTaskDelay(pdMS_TO_TICKS(250));
@@ -525,6 +548,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
 				vTaskDelay(pdMS_TO_TICKS(250));
                 };
+
             xil_printf("\nMOTOR BEING SHUT OFF\n");
             Stepper_disableMotor();
 
@@ -543,4 +567,3 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		// wait 10ms (polling loop at 100Hz)
 		vTaskDelay(pdMS_TO_TICKS(10));
 	}
-}
