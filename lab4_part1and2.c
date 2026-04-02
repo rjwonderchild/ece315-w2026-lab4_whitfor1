@@ -87,6 +87,7 @@ typedef struct {
 
 decision_parameters motor_parameters;
 int parameters_flag = 0;
+volatile int emerg = 0;
 
 int positionSequence[SEQUENCE_LENGTH][2] = {{NO_OF_STEPS_PER_REVOLUTION_FULL_DRIVE, 0}}; // position-delay array
 int sequenceIndex = 0; // the number of position-delay sequences
@@ -463,13 +464,14 @@ static void _Task_Motor( void *pvParameters ){
 
 		/**********************************************************************************************/
 
-		// print the motor position, and reset variables to start getting the next position-delay sequence
-		xil_printf("\n\nCurrent position of the motor = %d steps\n", motor_parameters.currentposition_in_steps);
-		xil_printf("Press <ENTER> to keep this value, or type a new starting position and then <ENTER>\n");
+        if (!emerg) {
+            // print the motor position, and reset variables to start getting the next position-delay sequence
+		    xil_printf("\n\nCurrent position of the motor = %d steps\n", motor_parameters.currentposition_in_steps);
+		    xil_printf("Press <ENTER> to keep this value, or type a new starting position and then <ENTER>\n");
 
-		parameters_flag = 0;
-		sequenceIndex = 0;
-
+		    parameters_flag = 0;
+		    sequenceIndex = 0;
+        }
 	}
 }
 
@@ -495,6 +497,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		if(pressedCount >= 3){
 			// cancel remaining pairs of movement and delays
 			sequenceIndex = 0;
+            emerg = 1;
             xil_printf("\nEMERGENCY BUTTON ACTIVATED!!\n");
 			
 			/**********************************************************************************************/
@@ -512,41 +515,21 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 	        // velocity of 0,  Steps = Velocity^2 / (2 * Acceleration)
             float v = Stepper_getCurrentVelocityInStepsPerSecond();
 
-
 	        long decelDistance = (long)((v * v) / (2.0 * deceleration_InStepsPerSecondPerSecond));
 
-
-            Stepper_SetupStop();
-
             if (direction_Scaler > 0) 
-                Stepper_setCurrentPositionInSteps(targetPosition_InSteps - decelerationDistance_InSteps);
+                Stepper_setCurrentPositionInSteps(targetPosition_InSteps - decelDistance);
             else
-                Stepper_setCurrentPositionInSteps(targetPosition_InSteps + decelerationDistance_InSteps);
-
-            int stoppedCount = 0;
+                Stepper_setCurrentPositionInSteps(targetPosition_InSteps + decelDistance);
 
             while (1) {
-                float currV = Stepper_getCurrentVelocityInStepsPerSecond();
-                if (currV < 0) currV = -currV;
 
                 if (Stepper_motionComplete()) {
                     xil_printf("\nMOTION COMPLETE TRUE\n");
                     xil_printf("\nMOTOR BEING SHUT OFF\n");
                     Stepper_disableMotor();
-                }
-
-                if (currV < 1.0f) {
-                    stoppedCount++;
-                } else {
-                    stoppedCount = 0;
-                }
-
-                if (stoppedCount >= 5) {
-                    xil_printf("\nVELOCITY NEAR ZERO, FORCING MOTOR OFF.\n");
                     break;
                 }
-
-
 
                 // RED LED on for 250ms
 				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
@@ -556,8 +539,6 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 				vTaskDelay(pdMS_TO_TICKS(250));
                 };
 
-            xil_printf("\nMOTOR BEING SHUT OFF\n");
-            Stepper_disableMotor();
 
 			// Flash led at 2Hz - set delays for 250ms, therefore ON->OFF->ON->OFF, cycle occurs twice per second.
 			while (1) {
@@ -567,6 +548,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 				// RED LED off for 250ms
 				XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
 				vTaskDelay(pdMS_TO_TICKS(250));
+                xil_printf("\nRESET ZYBO, CLICK RED BUTTON\n");
 			}
 			
 			/**********************************************************************************************/
