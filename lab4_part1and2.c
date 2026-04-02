@@ -495,7 +495,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		if(pressedCount >= 3){
 			// cancel remaining pairs of movement and delays
 			sequenceIndex = 0;
-            xil_printf("\nOH SHIT EMERGENCY BUTTON ACTIVATED!!\n");
+            xil_printf("\nEMERGENCY BUTTON ACTIVATED!!\n");
 			
 			/**********************************************************************************************/
 			//Set the "current stepper position" to the position at which it must now begin decelerating.
@@ -535,7 +535,7 @@ static void _Task_Emerg_Stop( void *pvParameters ){
                 }
 
                 if (stoppedCount >= 5) {
-                    xil_printf("\nVELOCITY NEAR ZERO, FORCING MOTOR OFF BECAUSE FUCK YOU.\n");
+                    xil_printf("\nVELOCITY NEAR ZERO, FORCING MOTOR OFF.\n");
                     break;
                 }
 
