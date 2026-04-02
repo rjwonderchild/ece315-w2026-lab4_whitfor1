@@ -30,16 +30,16 @@
  *  _Task_Motor() is responsible receiving the queue parameters and then setting up the motor parameters by calling the respective functions from the stepper.c file.
  *
  *  _Task_Emerg_Stop() will execute emergency stop when Btn0 is pressed for three consecutive polls. The motor will now begin to decelerate and come to a complete stop.
- *  And a red light on the RGB led will flash continuously at 3 Hz frequency.
+ *  And a red light on the RGB led will flash continuously at 2 Hz frequency.
  *
  */
 
 #include "sleep.h"
 #include "xil_cache.h"
 #include "stepper.h"
-#include "xuartps.h"
-#include "xgpio.h"
-#include "xparameters.h"
+#include "xuartps.h"        //UART definitions header file
+#include "xgpio.h"          //GPIO functions definitions
+#include "xparameters.h"    //DEVICE ID, UART BASEADDRESS, GPIO BASE ADDRESS definitions
 #include <portmacro.h>
 
 
@@ -55,20 +55,25 @@ static TaskHandle_t xEmergStopTask;
 int Initialize_UART();
 
 /************************* Queue Function definitions *************************/
-static QueueHandle_t xQueue_FIFO1 = NULL;
+static QueueHandle_t xQueue_FIFO1 = NULL;   //queue between task1 and task2
 
 /************************* Global Variables ***********************************/
 
+//GPIO Button Instance and DEVICE ID
 XGpio BTNInst;
 #define EMERGENCY_BUTTON_BASEADDR       XPAR_GPIO_INPUTS_BASEADDR
 
+//GPIO RGB led Instance and DEVICE ID
 XGpio Red_RGBInst;
 #define RGB_LED_BASEADDR                XPAR_GPIO_LEDS_BASEADDR
 
 #define PMOD_MOTOR_BASEADDR             XPAR_GPIO_LEDS_BASEADDR
+// Need to swap back to XPAR_STEPPER_MOTOR_BASEADDR
 
+// The number of positions/delays which can be sequenced
 #define SEQUENCE_LENGTH 10
 
+//struct for motor parameters
 typedef struct {
     long  currentposition_in_steps;
     float rotational_speed;
@@ -80,11 +85,12 @@ typedef struct {
 decision_parameters motor_parameters;
 int parameters_flag = 0;
 
-int positionSequence[SEQUENCE_LENGTH][2] = {{NO_OF_STEPS_PER_REVOLUTION_FULL_DRIVE, 0}};
-int sequenceIndex = 0;
-int loop_count = 1;
+int positionSequence[SEQUENCE_LENGTH][2] = {{NO_OF_STEPS_PER_REVOLUTION_FULL_DRIVE, 0}}; // position-delay array
+int sequenceIndex = 0; // the number of position-delay sequences
+int loop_count = 1; // the number of times to repeat the position-delay sequence
 
-volatile int emergency_stop_flag = 0;  // shared flag between motor and emergency stop tasks
+// shared flag - set to 1 by emergency stop task to halt motor task
+volatile int emergency_stop_flag = 0;
 
 //----------------------------------------------------
 // MAIN FUNCTION
@@ -92,33 +98,43 @@ volatile int emergency_stop_flag = 0;  // shared flag between motor and emergenc
 int main (void)
 {
     int status;
+    //------------------------------------------------------
+    // INITIALIZE THE PMOD GPIO PERIPHERAL FOR STEPPER MOTOR, STOP BUTTON AND RGB LED
+    //------------------------------------------------------
 
+    // Initialize the PMOD for motor signals (JC PMOD is being used)
     status = XGpio_Initialize(&PModMotorInst, PMOD_MOTOR_BASEADDR);
     if(status != XST_SUCCESS){
         xil_printf("GPIO Initialization for PMOD unsuccessful.\r\n");
         return XST_FAILURE;
     }
 
+    // Initialize the PMOD for getting the button value (btn0 is being used)
     status = XGpio_Initialize(&BTNInst, EMERGENCY_BUTTON_BASEADDR);
     if(status != XST_SUCCESS){
         xil_printf("GPIO Initialization for BUTTONS unsuccessful.\r\n");
         return XST_FAILURE;
     }
 
+    // Initialize the PMOD for flashing the RED light on RGB LED
     status = XGpio_Initialize(&Red_RGBInst, RGB_LED_BASEADDR);
     if(status != XST_SUCCESS){
         xil_printf("GPIO Initialization for BUTTONS unsuccessful.\r\n");
         return XST_FAILURE;
     }
 
+    //Initialize the UART
     status = Initialize_UART();
     if (status != XST_SUCCESS){
         xil_printf("UART Initialization failed\n");
     }
 
+    // Set all buttons direction to inputs
     XGpio_SetDataDirection(&BTNInst, 1, 0xFF);
+    // Set the RGB LED direction to output
     XGpio_SetDataDirection(&Red_RGBInst, 1, 0x00);
 
+    // Initialization of motor parameter values here
     motor_parameters.currentposition_in_steps = 0;
     motor_parameters.rotational_speed = 500;
     motor_parameters.rotational_acceleration = 150;
@@ -165,6 +181,7 @@ static void _Task_Uart( void *pvParameters ){
 
     while(1){
 
+        // print the message that corresponds to the parameter we want to get
         if(message_flag == 0){
             if(parameters_flag == 0){
                 xil_printf("Current position of the motor = %d steps\n", motor_parameters.currentposition_in_steps);
@@ -203,39 +220,48 @@ static void _Task_Uart( void *pvParameters ){
         int keep_default_value_flag = 0;
         int idx=0;
         while (1){
+            // get input from the user
             if(XUartPs_IsReceiveData(XPAR_XUARTPS_0_BASEADDR)){
                 read_UART_character[idx] = XUartPs_ReadReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_FIFO_OFFSET);
                 idx++;
+                // stop getting input when a return is found
                 if(read_UART_character[idx-1] == 0x0D){
                     break;
                 }
             }
         }
 
+        // if only enter was pressed, keep the default parameter value
         if(idx == 1){
             if(read_UART_character[idx-1] == 0x0D){
                 keep_default_value_flag = 1;
                 invalid_input_flag = 0;
             }
         }
+        // else get the number, ensuring it is positive
         else if(parameters_flag <= 5 && parameters_flag != 4){
             for(int i=0; i<idx-1; i++){
+                // if an invalid character is found
                 if(!(read_UART_character[i] >= '0' && read_UART_character[i] <= '9')){
                     invalid_input_flag = 1;
                     break;
                 }
+                // else copy the character
                 else{
                     strncat(str_value_motor_value, &read_UART_character[i], 1);
                     invalid_input_flag = 0;
                 }
             }
         }
+        // parameters 4 and 6 allow for negative numbers, get the number
         else if(parameters_flag == 4 || parameters_flag == 6){
             for(int i=0; i<idx-1; i++){
+                // if an invalid character is found
                 if(!(read_UART_character[i] >= '0' && read_UART_character[i] <= '9') && read_UART_character[i]!='-'){
                     invalid_input_flag = 1;
                     break;
                 }
+                // else copy the character
                 else{
                     strncat(str_value_motor_value, &read_UART_character[i], 1);
                     invalid_input_flag = 0;
@@ -243,13 +269,16 @@ static void _Task_Uart( void *pvParameters ){
             }
         }
 
+        // notify the user on invalid data entry
         if(invalid_input_flag == 1){
             message_flag = 1;
             xil_printf("There was an invalid input from user except the valid inputs between 0-9\n");
             xil_printf("Please input the value of this parameter again!\n");
         }
+        // if we are still getting motor parameters from the user
         else if(parameters_flag <= 6){
             message_flag = 0;
+            // update the value with the one given by the user, or keep it as the default
             if(parameters_flag == 0){
                 if(keep_default_value_flag == 1){
                     xil_printf("User chooses to keep the default value of current position = %d steps\n\n",motor_parameters.currentposition_in_steps);
@@ -259,6 +288,7 @@ static void _Task_Uart( void *pvParameters ){
                     xil_printf("User entered the new current position = %d steps\n\n",motor_parameters.currentposition_in_steps);
                 }
             }
+            // update the value with the one given by the user, or keep it as the default
             else if(parameters_flag == 1){
                 if(keep_default_value_flag == 1){
                     printf("User chooses to keep the default value of rotational speed = %0.1f steps/sec\n\n",motor_parameters.rotational_speed);
@@ -268,6 +298,7 @@ static void _Task_Uart( void *pvParameters ){
                     printf("User entered the new rotational speed = %0.1f steps/sec\n\n",motor_parameters.rotational_speed);
                 }
             }
+            // update the value with the one given by the user, or keep it as the default
             else if(parameters_flag == 2){
                 if(keep_default_value_flag == 1){
                     printf("User chooses to keep the default value of rotational acceleration = %0.1f steps/sec/sec\n\n",motor_parameters.rotational_acceleration);
@@ -277,6 +308,7 @@ static void _Task_Uart( void *pvParameters ){
                     printf("User entered the new rotational acceleration = %0.1f steps/sec/sec\n\n",motor_parameters.rotational_acceleration);
                 }
             }
+            // update the value with the one given by the user, or keep it as the default
             else if(parameters_flag == 3){
                 if(keep_default_value_flag == 1){
                     printf("User chooses to keep the default value of rotational deceleration = %0.1f steps/sec/sec\n\n",motor_parameters.rotational_deceleration);
@@ -286,6 +318,7 @@ static void _Task_Uart( void *pvParameters ){
                     printf("User entered the new rotational deceleration = %0.1f steps/sec/sec\n\n",motor_parameters.rotational_deceleration);
                 }
             }
+            // update the value with the one given by the user, or keep it as the default
             else if(parameters_flag == 4){
                 if(keep_default_value_flag == 1){
                     xil_printf("User chooses to keep the default value of destination position = %d\n\n", positionSequence[sequenceIndex][0]);
@@ -295,6 +328,7 @@ static void _Task_Uart( void *pvParameters ){
                     xil_printf("User entered the new destination position = %d steps\n\n",positionSequence[sequenceIndex][0]);
                 }
             }
+            // update the value with the one given by the user, or keep it as the default
             else if(parameters_flag == 5){
                 if(keep_default_value_flag == 1){
                     xil_printf("User chooses to keep the default value of dwell time = %d\n", positionSequence[sequenceIndex][1]);
@@ -309,7 +343,9 @@ static void _Task_Uart( void *pvParameters ){
                 sequenceIndex ++;
             }
 
+            // once we have collected all of the motor parameters
             else if(parameters_flag == 6){
+                // show the user the next menu
                 if(keep_default_value_flag == 1 || sequenceIndex == SEQUENCE_LENGTH){
                     xil_printf("User chooses to stop inputting sequences, or sequence full.\n\n");
                     xil_printf("\n****************************** MENU ******************************\n");
@@ -320,13 +356,16 @@ static void _Task_Uart( void *pvParameters ){
                     int index=0;
                     char command;
                     while (1){
+                        // get the menu option from the user
                         if(XUartPs_IsReceiveData(XPAR_XUARTPS_0_BASEADDR)){
                             command_1_or_2_values[index] = XUartPs_ReadReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_FIFO_OFFSET);
                             index++;
+                            // if the user enters their input and presses enter
                             if(command_1_or_2_values[index-1] == 0x0D){
                                 if((index>2) | (index==1)){
                                     index=0;
                                 }
+                                // get the user command
                                 else if(index == 2){
                                     command = command_1_or_2_values[index-2];
                                     if((command == 'm') | (command == 'L') | (command == 'g')){
@@ -339,23 +378,27 @@ static void _Task_Uart( void *pvParameters ){
                             }
                         }
                     }
+                    // if the user enters 'm' go back to setting the motor parameters
                     if(command == 'm'){
                         parameters_flag = 0;
                         sequenceIndex = 0;
                     }
+                    // start the sequence if the user enters 'g'
                     else if(command == 'g'){
                         loop_count = 1;
-                        emergency_stop_flag = 0;  // clear any previous emergency stop
+                        emergency_stop_flag = 0;  // clear any previous emergency stop before new run
                         decision_parameters * const pointer_to_motor_struct_values = &motor_parameters;
                         xQueueSendToBack(xQueue_FIFO1, &pointer_to_motor_struct_values, 0UL);
                     }
                 }
+                // else the user wishes to input another position in the sequence
                 else{
                     positionSequence[sequenceIndex][0] = atoi(str_value_motor_value);
                     xil_printf("User entered the new destination position = %d steps\n\n",positionSequence[sequenceIndex][0]);
                     parameters_flag = 4;
                 }
             }
+            // increment to get the next parameter
             parameters_flag += 1;
         }
 
@@ -384,7 +427,8 @@ static void _Task_Motor( void *pvParameters ){
 
         for (int i = 0; i < sequenceIndex; i++) {
 
-            if (emergency_stop_flag) break;  // exit immediately if emergency stop triggered
+            // exit the loop immediately if emergency stop has been triggered
+            if (emergency_stop_flag) break;
 
             int steps = positionSequence[i][0];
             int delay = positionSequence[i][1];
@@ -392,15 +436,16 @@ static void _Task_Motor( void *pvParameters ){
             // turn green LED on while motor is moving
             XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b010);
 
-            // use SetupMove + manual processMovement loop so emergency stop task can intervene
+            // use SetupMove + manual processMovement loop instead of the blocking
+            // Stepper_moveToPositionInSteps() so the emergency stop task can intervene
             Stepper_SetupMoveInSteps(steps);
             while (!Stepper_processMovement()) {
                 if (emergency_stop_flag) break;
                 vTaskDelay(1);
             }
 
+            // only do the post-move steps if emergency stop was not triggered
             if (!emergency_stop_flag) {
-                // turn LED off when target position reached
                 XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
                 Stepper_disableMotor();
                 Stepper_setCurrentPositionInSteps(steps);
@@ -408,10 +453,16 @@ static void _Task_Motor( void *pvParameters ){
             }
         }
 
-        if (!emergency_stop_flag) {
-            XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);  // ensure LED is off when done
+        // if emergency stop was triggered, block here forever without printing
+        // or resetting parameters_flag/sequenceIndex - this prevents _Task_Uart
+        // from restarting and the green LED from coming back on
+        if (emergency_stop_flag) {
+            XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000); // ensure green is off
+            while(1) vTaskDelay(pdMS_TO_TICKS(1000));
         }
 
+        // normal completion - turn off LED, print position, reset for next run
+        XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
         xil_printf("\n\nCurrent position of the motor = %d steps\n", motor_parameters.currentposition_in_steps);
         xil_printf("Press <ENTER> to keep this value, or type a new starting position and then <ENTER>\n");
 
@@ -422,38 +473,47 @@ static void _Task_Motor( void *pvParameters ){
 
 
 static void _Task_Emerg_Stop( void *pvParameters ){
-    int pressedCount = 0;
-    int btnState = 0;
+    int pressedCount = 0; // the number of consecutive polls the button is pressed for
+    int btnState = 0; // the button state
 
     while(1){
 
+        // poll the button
         btnState = XGpio_DiscreteRead(&BTNInst, 1);
 
+        // if the button is pressed, increase the counter. Else reset it to zero.
         if(btnState == 1) pressedCount++;
         else pressedCount = 0;
 
+        // if the button is pressed for 3 consecutive polls
         if(pressedCount >= 3){
-            emergency_stop_flag = 1;  // signal motor task to stop
             sequenceIndex = 0;
+            emergency_stop_flag = 1;  // signal motor task to stop immediately
+            xil_printf("\nEMERGENCY BUTTON ACTIVATED!!\n");
 
-            // use the built-in SetupStop which correctly computes the deceleration target
+            // use the driver's built-in SetupStop which correctly sets targetPosition
+            // to exactly the deceleration distance from the current position/direction
             Stepper_SetupStop();
 
-            // wait for the motor to finish decelerating
+            // wait for the motor to finish decelerating to a complete stop
             while (!Stepper_motionComplete()) {
                 vTaskDelay(pdMS_TO_TICKS(10));
             }
-            Stepper_disableMotor();
 
-            // flash red LED at 3 Hz (167ms on, 167ms off)
+            // motor is now fully stopped, disable the coils
+            Stepper_disableMotor();
+            xil_printf("\nMOTOR STOPPED\n");
+
+            // flash red LED at 2 Hz (250ms on, 250ms off) indefinitely until hard reset
             while (1) {
                 XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
-                vTaskDelay(pdMS_TO_TICKS(167));
+                vTaskDelay(pdMS_TO_TICKS(250));
                 XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
-                vTaskDelay(pdMS_TO_TICKS(167));
+                vTaskDelay(pdMS_TO_TICKS(250));
             }
         }
 
+        // wait 10ms (polling loop at 100Hz)
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
