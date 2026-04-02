@@ -518,6 +518,11 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 
             Stepper_SetupStop();
 
+            if (direction_Scaler > 0) 
+                Stepper_setCurrentPositionInSteps(targetPosition_InSteps - decelerationDistance_InSteps);
+            else
+                Stepper_setCurrentPositionInSteps(targetPosition_InSteps + decelerationDistance_InSteps);
+
             int stoppedCount = 0;
 
             while (1) {
@@ -526,6 +531,8 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 
                 if (Stepper_motionComplete()) {
                     xil_printf("\nMOTION COMPLETE TRUE\n");
+                    xil_printf("\nMOTOR BEING SHUT OFF\n");
+                    Stepper_disableMotor();
                 }
 
                 if (currV < 1.0f) {
@@ -567,3 +574,4 @@ static void _Task_Emerg_Stop( void *pvParameters ){
 		// wait 10ms (polling loop at 100Hz)
 		vTaskDelay(pdMS_TO_TICKS(10));
 	}
+}
