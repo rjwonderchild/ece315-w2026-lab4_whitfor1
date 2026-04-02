@@ -407,7 +407,6 @@ static void _Task_Uart( void *pvParameters ){
 }
 
 
-/*-----------------------------------------------------------*/
 static void _Task_Motor( void *pvParameters ){
 
     decision_parameters *read_motor_parameters_from_queue;
@@ -427,24 +426,21 @@ static void _Task_Motor( void *pvParameters ){
 
         for (int i = 0; i < sequenceIndex; i++) {
 
-            // exit the loop immediately if emergency stop has been triggered
             if (emergency_stop_flag) break;
 
             int steps = positionSequence[i][0];
             int delay = positionSequence[i][1];
 
-            // turn green LED on while motor is moving
             XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b010);
 
-            // use SetupMove + manual processMovement loop instead of the blocking
-            // Stepper_moveToPositionInSteps() so the emergency stop task can intervene
             Stepper_SetupMoveInSteps(steps);
+
+            // process movement one step at a time so emergency stop can intervene
             while (!Stepper_processMovement()) {
                 if (emergency_stop_flag) break;
                 vTaskDelay(1);
             }
 
-            // only do the post-move steps if emergency stop was not triggered
             if (!emergency_stop_flag) {
                 XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
                 Stepper_disableMotor();
@@ -453,15 +449,12 @@ static void _Task_Motor( void *pvParameters ){
             }
         }
 
-        // if emergency stop was triggered, block here forever without printing
-        // or resetting parameters_flag/sequenceIndex - this prevents _Task_Uart
-        // from restarting and the green LED from coming back on
+        // block forever after emergency stop - prevents prints and UART restart
         if (emergency_stop_flag) {
-            XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000); // ensure green is off
+            XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
             while(1) vTaskDelay(pdMS_TO_TICKS(1000));
         }
 
-        // normal completion - turn off LED, print position, reset for next run
         XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b000);
         xil_printf("\n\nCurrent position of the motor = %d steps\n", motor_parameters.currentposition_in_steps);
         xil_printf("Press <ENTER> to keep this value, or type a new starting position and then <ENTER>\n");
@@ -473,38 +466,43 @@ static void _Task_Motor( void *pvParameters ){
 
 
 static void _Task_Emerg_Stop( void *pvParameters ){
-    int pressedCount = 0; // the number of consecutive polls the button is pressed for
-    int btnState = 0; // the button state
+    int pressedCount = 0;
+    int btnState = 0;
 
     while(1){
 
-        // poll the button
         btnState = XGpio_DiscreteRead(&BTNInst, 1);
 
-        // if the button is pressed, increase the counter. Else reset it to zero.
         if(btnState == 1) pressedCount++;
         else pressedCount = 0;
 
-        // if the button is pressed for 3 consecutive polls
         if(pressedCount >= 3){
-            sequenceIndex = 0;
-            emergency_stop_flag = 1;  // signal motor task to stop immediately
             xil_printf("\nEMERGENCY BUTTON ACTIVATED!!\n");
 
-            // use the driver's built-in SetupStop which correctly sets targetPosition
-            // to exactly the deceleration distance from the current position/direction
+            // set the flag FIRST so _Task_Motor exits its processMovement loop
+            emergency_stop_flag = 1;
+            sequenceIndex = 0;
+
+            // give _Task_Motor time to exit its processMovement loop before
+            // we call SetupStop, otherwise they fight over the motor state
+            vTaskDelay(pdMS_TO_TICKS(20));
+
+            // SetupStop recalculates targetPosition so the motor decelerates
+            // from wherever it currently is to a smooth stop
             Stepper_SetupStop();
 
-            // wait for the motor to finish decelerating to a complete stop
-            while (!Stepper_motionComplete()) {
-                vTaskDelay(pdMS_TO_TICKS(10));
+            // now drive the remaining deceleration steps from this task
+            // the motor task is blocked in while(1) vTaskDelay so only
+            // this task is calling processMovement now
+            while (!Stepper_processMovement()) {
+                vTaskDelay(1);
             }
 
-            // motor is now fully stopped, disable the coils
+            // motor has fully decelerated and stopped, cut power to coils
             Stepper_disableMotor();
             xil_printf("\nMOTOR STOPPED\n");
 
-            // flash red LED at 2 Hz (250ms on, 250ms off) indefinitely until hard reset
+            // flash red LED at 2 Hz (250ms on, 250ms off) until hard reset
             while (1) {
                 XGpio_DiscreteWrite(&Red_RGBInst, 2, 0b100);
                 vTaskDelay(pdMS_TO_TICKS(250));
@@ -513,7 +511,6 @@ static void _Task_Emerg_Stop( void *pvParameters ){
             }
         }
 
-        // wait 10ms (polling loop at 100Hz)
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
